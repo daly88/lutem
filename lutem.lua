@@ -7,11 +7,6 @@
 
 require "ltm_stack"
 
--- parser state definition
-local ST_ROOT = 0
-local ST_IN_LOOP = 1
-local ST_IN_BLOCK = 2
-
 -- precompile block type
 local BTYPE_RAW = 0
 local BTYPE_INSTR = 1
