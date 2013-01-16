@@ -37,7 +37,7 @@ function ltm_stack:top()
 end
 
 function ltm_stack:new(o)
-	o = o or {}
+	o = o or {top_ = -1, data_ = {}}
 	setmetatable(o, self)
 	self.__index = self
 	return o
