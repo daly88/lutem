@@ -1,0 +1,7 @@
+<ul>
+{= avalue =}
+{= tbl.f =}
+{% for user in users %}
+  <li><a href="{= user.url =}">{= user.username =}</a></li>
+{% end %}
+</ul>
