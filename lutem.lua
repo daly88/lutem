@@ -17,10 +17,6 @@ local BTYPE_RAW = 0
 local BTYPE_INSTR = 1
 local BTYPE_EXPR = 2
 
--- lutem state
-local LUTEM_LOADED = 1
-local LUTEM_COMPILED = 2
-
 lutem = {
 	srclines_ = {},  --template source lines(key by lineno)
 	output_lines_ = {},  -- render output buffer
@@ -42,7 +38,7 @@ lutem = {
 
 function lutem:precompile()
 	if self.filename_ == "" then return end
-	
+
 	for k,v in ipairs(self.srclines_) do
 		self.pblock_:push({lno_=k, type_=BTYPE_RAW, content_=""})
 		for text, block in string.gmatch(v.."{___}", "([^{]-)(%b{})") do
@@ -75,7 +71,6 @@ function lutem:precompile()
 			end
 		end
 	end
-	self.state_ = LUTEM_COMPILED
 end
 
 
@@ -100,14 +95,14 @@ function lutem:load(filename)
 		table.insert(self.srclines_, line .. "\n")
 	end
 	f:close()
-	self.state_ = LUTEM_LOADED
+	self:precompile()
+	self.state_ = 1 
 	return 0
 end
 
-local function merge_table(t1, t2)
+local function copy_table(t1)
 	tb = {}
 	for k,v in pairs(t1) do tb[k] = v end
-	for k,v in pairs(t2) do tb[k] = v end
 	return tb
 end
 
@@ -143,10 +138,14 @@ local function parse_instr(s)
 	local arglist = {}	
 	for f in string.gmatch(s, "([^ \t]+)") do
 		nf = nf + 1
-		if nf == 1 then
-			cmd = f
-		else
-			table.insert(arglist, f)
+		while true do 
+			if nf == 1 then
+				cmd = f
+			else
+				if cmd == "for" and nf == 3 then break end
+				table.insert(arglist, f)
+			end
+			break
 		end
 	end
 	return cmd, arglist
@@ -157,22 +156,30 @@ local function new_parse_node(depth)
 	o.content = {}
 	o.depth = depth
 	o.args = {}
+	o.start_pc = 0
+	o.iter_table = {}
+	o.iter_p = 1
+	o.iter_key = nil
+	o.iter_val = nil
 	return o
 end
 
 function lutem:parse()
-	local cur_state = ST_ROOT
-	local local_args = {}
-	local node = self.pstack_:top()
+	local node = nil
+	local btype = 0
+	local content = ""
 	--begin parse
-	for k,v in pairs(self.pblock_.data_) do
-		-- the stack is empty, now we are in the top level
+	local pc = 1  --index of current block 
+	while self.pblock_.data_[pc] ~= nil do
+		v = self.pblock_.data_[pc]		
 		node = self.pstack_:top()
 		if v.type_ == BTYPE_RAW then
 			table.insert(node.content, v.content_)
+			pc = pc + 1
 		elseif v.type_ == BTYPE_EXPR then
 			ct = get_field_val(node.args, v.content_)
 			table.insert(node.content, ct)
+			pc = pc + 1
 		elseif v.type_ == BTYPE_INSTR then
 			--warning: not finish yet
 			cmd, arglist = parse_instr(v.content_)
@@ -184,28 +191,42 @@ function lutem:parse()
 				child_node = new_parse_node(node.depth + 1)
 				kname = arglist[1]
 				tb_val = node.args[arglist[2]]
-				child_node.args = merge_table(node.args, {})
-				self.pstack_:push(child_node)
-				if tb_val ~= nil then
-					for mp_k, mp_v in pairs(node.args[tb_val]) do
-						child_node.args[kname] = mp_v
-						--self.parse()
-					end
+				child_node.args = copy_table(node.args)
+				child_node.start_pc = pc + 1
+				child_node.iter_val = kname
+				if tb_val == nil then tb_val = {} end
+				for it_key, it_val in pairs(tb_val) do 
+					table.insert(child_node.iter_table, {key=it_key, val=it_val})
 				end
-			elseif cmd == "end" then
-				--pop parse stack
-				local_args = f
-				self.pstack_:pop()
-				parent_node = self.pstack_:top()
-				table.insert(parent_node.content, table.concat(node.content,""))
+				child_node.iter_p = 1
+				child_node.args[kname] = child_node.iter_table[1]["val"]
+				self.pstack_:push(child_node)
+				pc = pc + 1
+			elseif cmd == "end" then 
+				if node.depth == 0 then 
+					return nil 
+				end -- error
+
+				iv = node.iter_table[node.iter_p]
+				if iv == nil then
+					self.pstack_:pop()
+					parent_node = self.pstack_:top()
+					table.insert(parent_node.content, table.concat(node.content,""))
+					pc = pc + 1
+				else
+					node.iter_p = node.iter_p + 1
+					node.args[node.iter_val] = iv["val"]
+					--go back to for begin
+					pc = child_node.start_pc
+				end
 			else
-				print("error "..cmd)
 				return nil  --error command
 			end
 		else
 			return nil
 		end
 	end
+
 	if self.pstack_:size() ~= 1 then
 		print(self.pstack_.size())
 		return nil   -- no {% end %}
@@ -215,18 +236,13 @@ function lutem:parse()
 end
 
 function lutem:render(args, keep_custom)
-	if self.state_ ~= LUTEM_LOADED then
-		return "", -1
-	end
+	if self.state_ ~= 1 then return "", -1 end
 	
-	if self.state_ ~= LUTEM_COMPILED then self:precompile() end
-
 	local lno = -1
 	local sline = ""
 	local root_node = new_parse_node(0)
 	root_node.args = args
 	self.pstack_:push(root_node)
-
 
 	local output_block = self:parse()
 
