@@ -187,7 +187,7 @@ function lutem:parse()
 				kname = arglist[1]
 				tb_val = node.args[arglist[2]]
 				child_node.args = copy_table(node.args)
-				child_node.start_pc = pc + 1
+				child_node.start_pc = pc
 				child_node.iter_val = kname
 				if tb_val == nil then tb_val = {} end
 				for it_key, it_val in pairs(tb_val) do 
@@ -198,10 +198,9 @@ function lutem:parse()
 				self.pstack_:push(child_node)
 				pc = pc + 1
 			elseif cmd == "end" then 
-				if node.depth == 0 then 
-					return nil 
-				end -- error
-
+				if node.depth == 0 then
+					return nil
+				end
 				iv = node.iter_table[node.iter_p]
 				if iv == nil then
 					self.pstack_:pop()
@@ -211,8 +210,7 @@ function lutem:parse()
 				else
 					node.iter_p = node.iter_p + 1
 					node.args[node.iter_val] = iv["val"]
-					--go back to for begin
-					pc = child_node.start_pc
+					pc = node.start_pc + 1
 				end
 			else
 				return nil  --error command
