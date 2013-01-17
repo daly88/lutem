@@ -38,7 +38,6 @@ function lutem:precompile()
 	for k,v in ipairs(self.srclines_) do
 		self.pblock_:push({lno_=k, type_=BTYPE_RAW, content_=""})
 		for text, block in string.gmatch(v.."{%___%}", block_pattern) do
-			print("t:"..text.." b:"..block)
 			if text:len() > 0 then
 				self.pblock_:push({lno_=k, type_=BTYPE_RAW, content_=text})
 			end
@@ -133,17 +132,32 @@ local function parse_instr(s)
 	local nf = 0
 	local cmd = nil
 	local arglist = {}	
-	for f in string.gmatch(s, "([^ \t]+)") do
+	local arr_token = {}
+	for f in string.gmatch(s, "([^ \t\r\n]+)") do
+		table.insert(arr_token, f)
 		nf = nf + 1
-		while true do 
-			if nf == 1 then
-				cmd = f
-			else
-				if cmd == "for" and nf == 3 then break end
-				table.insert(arglist, f)
-			end
-			break
+	end
+	--check token
+	if nf < 1 then return "", -1 end
+	cmd = arr_token[1]
+	if cmd == "for" then
+		if nf ~= 4 and nf ~= 5 then return "",{} end
+		if arr_token[nf-1] ~= "in" then return "",{} end
+		if nf == 5 then 
+			--maybe has space between iter key and value, join them
+			table.insert(arglist, arr_token[2]..arr_token[3])
+		else 
+			table.insert(arglist, arr_token[2])
 		end
+
+		table.insert(arglist, arr_token[nf])
+	elseif cmd == "endfor" or cmd == "endblock" then
+		--no param
+		if nf > 1 then return "",{} end
+	elseif cmd == "include" or cmd == "extend" or cmd == "block" then
+		--only 1 param
+		if nf > 2 then return "",{} end 
+		table.insert(arglist, arr_token[2])
 	end
 	return cmd, arglist
 end
