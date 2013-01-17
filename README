@@ -1,0 +1,51 @@
+Welcome
+--------------------------
+lutem (short for LUa TEMplate engine) is a template render
+engine like jinja2(a famous template engine written in Python)
+It's used for auto code generation, dynamic html page generation
+or other kinds of dynamic text generation
+
+
+
+Template Syntax
+---------------------------
+The syntax is almost the same with jinja2 or Django template, 
+except variable replacement. In jinja2, it use {{ }} as variable
+replacement. However, {{ is a legal Lua syntax e.g. a = {{1,2},{3,4}} ,
+so we use {= =} instead.
+
+
+Loop generate:
+
+{% for k in mp %}
+...  --this area would be repeated
+{% endfor %}
+
+Include other template (join the template file together):
+
+{% include abc.tmpl %}
+
+
+variable replacement (variable or simple variable calculation):
+
+{= expression/variable =}
+
+Template Inheritance
+--------------------------------
+child template inheritance by parent template:
+{% extends abc.tmpl %}
+
+Declare block:
+{% block blockname %}
+...
+{% endblock %}
+
+The child template will overwrite the parent's block content
+if correspond block name declared in child template
+
+
+Example
+--------------------------
+See the test.lua and test.tmpl
+
+
