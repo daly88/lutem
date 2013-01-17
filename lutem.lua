@@ -33,15 +33,17 @@ lutem = {
 
 function lutem:precompile()
 	if self.filename_ == "" then return end
+	block_pattern = "([^{]*[^=%%]-)({[=%%][^%%=]*[^}]*[%%=]})"
 
 	for k,v in ipairs(self.srclines_) do
 		self.pblock_:push({lno_=k, type_=BTYPE_RAW, content_=""})
-		for text, block in string.gmatch(v.."{___}", "([^{]-)(%b{})") do
+		for text, block in string.gmatch(v.."{%___%}", block_pattern) do
+			print("t:"..text.." b:"..block)
 			if text:len() > 0 then
 				self.pblock_:push({lno_=k, type_=BTYPE_RAW, content_=text})
 			end
 
-			while block ~= "{___}" do
+			while block ~= "{%___%}" do
 				if block:len() < 4 then
 					self.pblock_:push({lno_=k, type_=BTYPE_RAW, content_=block})
 					break
@@ -106,7 +108,7 @@ local function get_field_val(args, field)
 	local val = nil
 	local flist = {}
 
-	for k in string.gmatch(field, "%w+") do 
+	for k in string.gmatch(field, "[%w_]+") do 
 		table.insert(flist, k)
 	end
 	
@@ -197,7 +199,7 @@ function lutem:parse()
 				child_node.args[kname] = child_node.iter_table[1]["val"]
 				self.pstack_:push(child_node)
 				pc = pc + 1
-			elseif cmd == "end" then 
+			elseif cmd == "endfor" then 
 				if node.depth == 0 then
 					return nil
 				end
