@@ -217,6 +217,7 @@ function lutem:parse()
 				if node.depth == 0 then
 					return nil
 				end
+				node.iter_p = node.iter_p + 1
 				iv = node.iter_table[node.iter_p]
 				if iv == nil then
 					self.pstack_:pop()
@@ -224,7 +225,6 @@ function lutem:parse()
 					table.insert(parent_node.content, table.concat(node.content,""))
 					pc = pc + 1
 				else
-					node.iter_p = node.iter_p + 1
 					node.args[node.iter_val] = iv["val"]
 					pc = node.start_pc + 1
 				end

@@ -1,9 +1,13 @@
-header
-{% for b in hh %}
-<ul>
-{= avalue =}
-{= tbl.f =}
+-- Auto generate example
+<html>
+<body>
+
+{% for aval in bigul %}
+<ul {= css.color =}>
 {% for user in users %}
-  <li><a href="{= user =}">{= user.username =}</a></li>{% endfor %}
+  <li><a href="{= user.url =}">{= aval =} {= user.username =}</a></li>{% endfor %}
 </ul>
 {% endfor %}
+
+</body>
+</html>
