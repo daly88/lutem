@@ -1,11 +1,12 @@
--- Auto generate example
+<!-- Auto generate example -->
 <html>
 <body>
+<!-- raw special text {{ '{{' }} {{'}}'}} {{ '{%' }} {{ '%}' }}-->
 
 {% for aval in bigul %}
-<ul {= css.color =}>
+<ul {{ css.color }}>
 {% for user in users %}
-  <li><a href="{= user.url =}">{= aval =} {= user.username =}</a></li>{% endfor %}
+  <li><a href="{{ user.url }}">{{ aval }} {{ user.username }}</a></li>{% endfor %}
 </ul>
 {% endfor %}
 

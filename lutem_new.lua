@@ -14,7 +14,7 @@ local INSTR_EXTEND = "extends"
 local INSTR_START = "{%"
 local INSTR_END = "%}"
 
-local ast_node = {
+ast_node = {
 	node_type = NODE_BLOCK, 
 	child_ = {},
 	parent_ = nil,
@@ -39,8 +39,14 @@ lutem = {
 
 --utils
 local function obj_copy(t1)
-	tb = {}
-	for k,v in pairs(t1) do tb[k] = v end
+	local tb = {}
+	for k,v in pairs(t1) do 
+		if type(v) == "table" then 
+			tb[k] = obj_copy(v) 
+		else	
+			tb[k] = v 
+		end
+	end
 	return tb
 end
 
@@ -131,15 +137,15 @@ function lutem:parse_file(filename)
 	local i,j
 	local bstack = {}  --block / for stack 
 	local pre, word, cmd, arglist 
-
+	table.insert(bstack, cur_parent)
 	for lno,text in ipairs(srclines) do
-		while (last < #text) do
+		while (last <= #text) do
 			pos_s = string.find(text, "{[{%%]", last)
 			if pos_s == nil then
 				if #(cur_text.content) < 1000 then
 					cur_text.content = cur_text.content .. string.sub(text, last)
 				else 
-					table.insert(cur_parent.child, cur_text)	
+					table.insert(cur_parent.child_, cur_text)	
 					cur_text = new_ast_node(NODE_TEXT, cur_parent, string.sub(text, last))
 				end 
 				break
@@ -147,22 +153,24 @@ function lutem:parse_file(filename)
 
 			--while found {{ or {%
 			
-			if #(cur_text.content) > 0 then
-				cur_text.content = cur_text.content .. string.sub(text, last, pos_s-1)
-				table.insert(cur_parent.child_, cur_text)	
-				cur_text = new_ast_node(NODE_TEXT, cur_parent, "")
-			end 
+			cur_text.content = cur_text.content .. string.sub(text, last, pos_s-1)
+			table.insert(cur_parent.child_, cur_text)	
+			cur_text = new_ast_node(NODE_TEXT, cur_parent, "")
 			pre = string.sub(text, pos_s, pos_s + 1)
 			last = pos_s + 2
 			if pre == '{{' then
-				i, j = string.find(text, "[ ]*[%w._]+[ ]*}}", last) 
-				if i ~= last then return -1, cur_lno, last end
+				i, j = string.find(text, "[ ]*'[^']+'[ ]*}}", last)
+				if i == last then
+					word = string.match(text, "'[^']+'", i, j-2)	
+					node = new_ast_node(NODE_RAW, cur_parent, string.sub(word, 2, -2))
+				else
+					i, j = string.find(text, "[ ]*[%w._]+[ ]*}}", last) 
+					if i ~= last then return -1, cur_lno, last end
+					word = string.match(text, "[%w._]+", i, j-2)
+					node = new_ast_node(NODE_EXPR, cur_parent, word)
+				end
 				last = j + 1
-				word = string.match(text, "[%w._]+", i, j-2)
-				node = new_ast_node(NODE_EXPR, cur_parent, word)
 				table.insert(cur_parent.child_, node)
-				print_node(node, "expr ")
-				print_node(cur_parent, "current_parent: ")
 			else
 				-- parse command
 				i, j = string.find(text, "[%w._ ]+%%}", last) 
@@ -176,17 +184,13 @@ function lutem:parse_file(filename)
 					table.insert(cur_parent.child_, node)
 					cur_parent = node
 					table.insert(bstack, node)
-					print_node(node, "begin for:")
-					print_node(cur_parent , "curr parent: ")
+
 				elseif cmd == "endfor" then
 					if #bstack < 1 or bstack[#bstack].node_type ~= NODE_FOR then
 						return -1, cur_lno, last
 					end
 					table.remove(bstack)	
-					print_node(cur_parent, "endfor parent ")
 					cur_parent = bstack[#bstack]
-					print_node(cur_parent, "after endfor parent ")
-
 				elseif cmd == "block" then
 					node = new_ast_node(NODE_BLOCK, cur_parent, arglist[1])
 					cur_parent = node
@@ -222,6 +226,7 @@ function lutem:parse_file(filename)
 		last = 1
 	end
 
+	table.insert(cur_parent.child_, cur_text)	
 	return 0
 end
 
@@ -241,15 +246,36 @@ function lutem:load(filename)
 	return 0
 end
 
+-- get expression value.
+-- support plain variable or table field access
+-- Example: {{ varname }}, {{ tbl.sub.field }}
 function lutem:get_expr_val(expr)
-	if self.args_[expr] == nil then return "" end
-	if type(self.args_[expr]) == "table" then return "" end
-	return tostring(self.args_[expr])	
+	local flist = {}
+	--table field split by .  e.g:  xxx.yyy.zzz
+	for k in string.gmatch(expr, "[%w_]+") do
+		table.insert(flist, k)
+	end
+	-- plain variable
+	if #flist == 1 then
+		if self.args_[expr] == nil then return "" end
+		return tostring(self.args_[expr]) 
+	end
+	-- table field access
+	local val = nil
+	local tbl = self.args_
+	for _, v in ipairs(flist) do
+		if type(tbl) ~= "table" then return "" end
+		val = tbl[v]
+		if val == nil then return "" end
+		tbl = val
+	end
+	if val == nil or type(val) == "table" then return "" end
+	return tostring(val)	
 end
 
 function lutem:render_block(block)
 	for _, node in ipairs(block.child_) do
-		if node.node_type == NODE_TEXT then
+		if node.node_type == NODE_TEXT or node.node_type == NODE_RAW then
 			self.output_ = self.output_  .. node.content
 		elseif node.node_type == NODE_EXPR then
 			self.output_ = self.output_ .. self:get_expr_val(node.content)
@@ -271,13 +297,7 @@ function lutem:render_loop(block)
 	for k, v in ipairs(self.args_[tbl_name]) do
 		table.insert(iter_tbl, {key=k, val=v})
 	end
-
-	print(#block.child_)
-	for _, node in ipairs(block.child_) do
-		if node.nodetype == NODE_FOR then print("child .." .. node.content[2]) end
-	end
-	if 1 then return nil end
-
+	
 	for _, elem in ipairs(iter_tbl) do 
 		self.args_[kname] = elem.key
 		self.args_[vname] = elem.val
@@ -287,7 +307,6 @@ function lutem:render_loop(block)
 			elseif node.node_type == NODE_EXPR then
 				self.output_ = self.output_ .. self:get_expr_val(node.content)
 			elseif node.node_type == NODE_FOR then
-				print(node.content[2])
 				self:render_loop(node)
 			else
 				self.output_ = self.output_ .. node.content
