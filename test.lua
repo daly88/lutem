@@ -1,5 +1,5 @@
 
-require "lutem"
+require "lutem_new"
 
 
 tmpl = lutem:new()

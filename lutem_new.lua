@@ -25,12 +25,15 @@ local ast_node = {
 
 lutem = {
 	output_ = {},     --render output buffer
-	args_ = {},       --template variable 
+	state_ = 0,      --finish parsing or not
+	args_ = {},
 
 	lineno_ = 0,    --line count
 	node_root_ = nil,     --block
 	blocks_ = {},
-	inherit_from_ = {},   --inherit by extends
+
+	involve_file_ = {}, 
+	file_queue_ = {},   --inherit by extends
 }
 
 
@@ -86,7 +89,7 @@ local function parse_instr(s)
 	elseif cmd == "endfor" or cmd == "endblock" then
 		--no param
 		if nf > 1 then return "",{} end
-	elseif cmd == "include" or cmd == "extend" or cmd == "block" then
+	elseif cmd == "extend" or cmd == "block" then
 		--only 1 param
 		if nf > 2 then return "",{} end 
 		table.insert(arglist, arr_token[2])
@@ -94,7 +97,15 @@ local function parse_instr(s)
 	return cmd, arglist
 end
 
-function lutem:readfile(filename)
+function print_node(node, prefix)
+	if node.node_type == NODE_FOR then
+		print(prefix .. " " .. node.content[2])
+	else 
+		print(prefix .. " " .. node.content)
+	end
+end
+
+function lutem:parse_file(filename)
 	srclines = {}
 	local f, err = io.open(filename, 'r')
 	if f == nil then return -1,0,0 end
@@ -115,7 +126,8 @@ function lutem:readfile(filename)
 	
 	local cur_lno = 1
 	local lex_bstart = '{[{%%]'
-	local pos_s, pos_e, pos_tmp, last
+	local pos_s, pos_e, pos_tmp
+	local last = 1
 	local i,j
 	local bstack = {}  --block / for stack 
 	local pre, word, cmd, arglist 
@@ -128,7 +140,7 @@ function lutem:readfile(filename)
 					cur_text.content = cur_text.content .. string.sub(text, last)
 				else 
 					table.insert(cur_parent.child, cur_text)	
-					cur_text = new_ast_node(NODE_TEXT, cur_parent, "")
+					cur_text = new_ast_node(NODE_TEXT, cur_parent, string.sub(text, last))
 				end 
 				break
 			end 
@@ -136,21 +148,24 @@ function lutem:readfile(filename)
 			--while found {{ or {%
 			
 			if #(cur_text.content) > 0 then
-				table.insert(cur_parent.child, cur_text)	
+				cur_text.content = cur_text.content .. string.sub(text, last, pos_s-1)
+				table.insert(cur_parent.child_, cur_text)	
 				cur_text = new_ast_node(NODE_TEXT, cur_parent, "")
 			end 
-			pre = string.sub(text, pos_s, pos_s + 2)
-			last = last + 2
+			pre = string.sub(text, pos_s, pos_s + 1)
+			last = pos_s + 2
 			if pre == '{{' then
-				i, j = string.find(text, "[ ]*[%w_]+[ ]*}}", last) 
+				i, j = string.find(text, "[ ]*[%w._]+[ ]*}}", last) 
 				if i ~= last then return -1, cur_lno, last end
 				last = j + 1
-				word = string.match(text, "[%w_]+", i, j-2)
+				word = string.match(text, "[%w._]+", i, j-2)
 				node = new_ast_node(NODE_EXPR, cur_parent, word)
-				table.insert(cur_parent.child, node)
+				table.insert(cur_parent.child_, node)
+				print_node(node, "expr ")
+				print_node(cur_parent, "current_parent: ")
 			else
 				-- parse command
-				i, j = string.find(text, "[ ]*[%w_]+[ ]*%%}", last) 
+				i, j = string.find(text, "[%w._ ]+%%}", last) 
 				if i ~= last then return -1, cur_lno, last end
 				cmd, arglist = parse_instr(string.sub(text, i, j-2))
 				if cmd == "" then return -1, cur_lno, last end
@@ -158,17 +173,24 @@ function lutem:readfile(filename)
 
 				if cmd == "for" then
 					node = new_ast_node(NODE_FOR, cur_parent, arglist)
+					table.insert(cur_parent.child_, node)
 					cur_parent = node
 					table.insert(bstack, node)
+					print_node(node, "begin for:")
+					print_node(cur_parent , "curr parent: ")
 				elseif cmd == "endfor" then
 					if #bstack < 1 or bstack[#bstack].node_type ~= NODE_FOR then
 						return -1, cur_lno, last
 					end
 					table.remove(bstack)	
+					print_node(cur_parent, "endfor parent ")
 					cur_parent = bstack[#bstack]
+					print_node(cur_parent, "after endfor parent ")
+
 				elseif cmd == "block" then
 					node = new_ast_node(NODE_BLOCK, cur_parent, arglist[1])
 					cur_parent = node
+					table.insert(cur_parent.child_, node)
 					table.insert(bstack, node)
 					if self.blocks_[arglist[1]] == nil then
 						self.blocks_[arglist[1]] = node
@@ -180,13 +202,16 @@ function lutem:readfile(filename)
 					table.remove(bstack)
 					cur_parent = bstack[#bstack]
 				elseif cmd == "extend" then
+					if self.involved_file ~= nil then
+						return -1, cur_lno, last
+					end 
 					if cur_parent.content ~= "__root"
 						or #cur_parent.child > 2
 						or #bstack > 0 then
 						return -1, cur_lno, last	
 					end
 
-					table.insert(self.inherit_from_, arglist[1])
+					table.insert(self.file_queue_, arglist[1])
 				end
 			end
 
@@ -198,5 +223,84 @@ function lutem:readfile(filename)
 	end
 
 	return 0
+end
+
+
+function lutem:load(filename)
+	self.involve_file_[filename] = 1
+	table.insert(self.file_queue_, filename)
+	self.queue_pos_ = 1
+	while self.queue_pos_ <= #self.file_queue_ do
+		local ret,lno,col = self:parse_file(self.file_queue_[self.queue_pos_])
+		if ret == -1 then 
+			return -1 
+		end
+		self.queue_pos_ = self.queue_pos_ + 1	
+	end
+	self.state = 1	
+	return 0
+end
+
+function lutem:get_expr_val(expr)
+	if self.args_[expr] == nil then return "" end
+	if type(self.args_[expr]) == "table" then return "" end
+	return tostring(self.args_[expr])	
+end
+
+function lutem:render_block(block)
+	for _, node in ipairs(block.child_) do
+		if node.node_type == NODE_TEXT then
+			self.output_ = self.output_  .. node.content
+		elseif node.node_type == NODE_EXPR then
+			self.output_ = self.output_ .. self:get_expr_val(node.content)
+		elseif node.node_type == NODE_BLOCK then
+			self.render_block(node.content)
+		elseif node.node_type == NODE_FOR then
+			self:render_loop(node)
+		else
+			self.output_ = self.output_ .. node.content
+		end
+	end
+end
+
+function lutem:render_loop(block)
+	iter_tbl = {}
+	kname = block.content[1]
+	vname = block.content[1]
+	tbl_name = block.content[2]
+	for k, v in ipairs(self.args_[tbl_name]) do
+		table.insert(iter_tbl, {key=k, val=v})
+	end
+
+	print(#block.child_)
+	for _, node in ipairs(block.child_) do
+		if node.nodetype == NODE_FOR then print("child .." .. node.content[2]) end
+	end
+	if 1 then return nil end
+
+	for _, elem in ipairs(iter_tbl) do 
+		self.args_[kname] = elem.key
+		self.args_[vname] = elem.val
+		for _, node in ipairs(block.child_) do
+			if node.node_type == NODE_TEXT then
+				self.output_ = self.output_ .. node.content
+			elseif node.node_type == NODE_EXPR then
+				self.output_ = self.output_ .. self:get_expr_val(node.content)
+			elseif node.node_type == NODE_FOR then
+				print(node.content[2])
+				self:render_loop(node)
+			else
+				self.output_ = self.output_ .. node.content
+			end
+		end
+	end
+end
+
+function lutem:render(args)
+	if self.state ~= 1 then return "", -1 end
+	self.output_ = ""	
+	self.args_ = args
+	self:render_block(self.node_root_)
+	return self.output_
 end
 
