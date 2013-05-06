@@ -9,11 +9,6 @@ local NODE_EXPR = 3
 local NODE_BLOCK = 4
 local NODE_RAW = 5
 
---lex token string
-local INSTR_EXTEND = "extends"
-local INSTR_START = "{%"
-local INSTR_END = "%}"
-
 ast_node = {
 	node_type = NODE_BLOCK, 
 	child_ = {},
