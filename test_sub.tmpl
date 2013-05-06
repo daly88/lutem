@@ -1,0 +1,10 @@
+{% extend test.tmpl %}
+
+<!-- This area is will be replace by parent template -->
+
+{% block body %}
+	{% block newb %}
+		here. block: newb
+	{% endblock %}
+	extend from parent 
+{% endblock %}

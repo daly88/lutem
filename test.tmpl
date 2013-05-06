@@ -9,6 +9,9 @@
   <li><a href="{{ user.url }}">{{ aval }} {{ user.username }}</a></li>{% endfor %}
 </ul>
 {% endfor %}
-
+<div>
+{% block body %}
+	I'm parent block  {% endblock %}
+</div>
 </body>
 </html>

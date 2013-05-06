@@ -114,7 +114,7 @@ end
 function lutem:parse_file(filename)
 	srclines = {}
 	local f, err = io.open(filename, 'r')
-	if f == nil then return -1,0,0 end
+	if f == nil then return -1,"parse file error "..filename  end
 
 	for line in f:lines() do
 		table.insert(srclines, line .. "\n")
@@ -137,11 +137,23 @@ function lutem:parse_file(filename)
 	local i,j
 	local bstack = {}  --block / for stack 
 	local pre, word, cmd, arglist 
+	local skip_block = 0
 	table.insert(bstack, cur_parent)
 	for lno,text in ipairs(srclines) do
 		while (last <= #text) do
+			--skip extended block
+			if skip_block == 1 then 
+				i, j = string.find(text, "{%%[ ]*endblock[ ]*%%}", last)
+				if i == nil then 
+					break 
+				else
+					last = i
+				end
+			end
+
 			pos_s = string.find(text, "{[{%%]", last)
 			if pos_s == nil then
+
 				if #(cur_text.content) < 1000 then
 					cur_text.content = cur_text.content .. string.sub(text, last)
 				else 
@@ -165,7 +177,7 @@ function lutem:parse_file(filename)
 					node = new_ast_node(NODE_RAW, cur_parent, string.sub(word, 2, -2))
 				else
 					i, j = string.find(text, "[ ]*[%w._]+[ ]*}}", last) 
-					if i ~= last then return -1, cur_lno, last end
+					if i ~= last then return -1, "expr error: "..cur_lno end
 					word = string.match(text, "[%w._]+", i, j-2)
 					node = new_ast_node(NODE_EXPR, cur_parent, word)
 				end
@@ -174,9 +186,9 @@ function lutem:parse_file(filename)
 			else
 				-- parse command
 				i, j = string.find(text, "[%w._ ]+%%}", last) 
-				if i ~= last then return -1, cur_lno, last end
+				if i ~= last then return -1, "command syntax error "..cur_lno end
 				cmd, arglist = parse_instr(string.sub(text, i, j-2))
-				if cmd == "" then return -1, cur_lno, last end
+				if cmd == "" then return -1, "command syntax error "..cur_lno end
 				last = j + 1
 
 				if cmd == "for" then
@@ -187,32 +199,36 @@ function lutem:parse_file(filename)
 
 				elseif cmd == "endfor" then
 					if #bstack < 1 or bstack[#bstack].node_type ~= NODE_FOR then
-						return -1, cur_lno, last
+						return -1, "endfor syntax error "..cur_lno 
 					end
 					table.remove(bstack)	
 					cur_parent = bstack[#bstack]
 				elseif cmd == "block" then
-					node = new_ast_node(NODE_BLOCK, cur_parent, arglist[1])
-					cur_parent = node
-					table.insert(cur_parent.child_, node)
-					table.insert(bstack, node)
-					if self.blocks_[arglist[1]] == nil then
+					if self.blocks_[arglist[1]] ~= nil then
+						node = self.blocks_[arglist[1]]
+						skip_block = 1
+					else
+						node = new_ast_node(NODE_BLOCK, cur_parent, arglist[1])
 						self.blocks_[arglist[1]] = node
 					end
+					table.insert(cur_parent.child_, node)
+					cur_parent = node
+					table.insert(bstack, node)
 				elseif cmd == "endblock" then
 					if #bstack < 1 or bstack[#bstack].node_type ~= NODE_BLOCK then
-						return -1, cur_lno, last
+						return -1, "endblock error: "..cur_lno
 					end
 					table.remove(bstack)
 					cur_parent = bstack[#bstack]
+					skip_block = 0
 				elseif cmd == "extend" then
 					if self.involved_file ~= nil then
-						return -1, cur_lno, last
+						return -1, "extend duplicated: "..cur_lno
 					end 
 					if cur_parent.content ~= "__root"
-						or #cur_parent.child > 2
-						or #bstack > 0 then
-						return -1, cur_lno, last	
+						or #cur_parent.child_ > 2
+						or #bstack > 1 then
+						return -1, "extend error: "..cur_lno
 					end
 
 					table.insert(self.file_queue_, arglist[1])
@@ -227,6 +243,7 @@ function lutem:parse_file(filename)
 	end
 
 	table.insert(cur_parent.child_, cur_text)	
+	if #bstack > 1 then return -1, print_node(bstack[#bstack], "unmatch block") end
 	return 0
 end
 
@@ -236,9 +253,9 @@ function lutem:load(filename)
 	table.insert(self.file_queue_, filename)
 	self.queue_pos_ = 1
 	while self.queue_pos_ <= #self.file_queue_ do
-		local ret,lno,col = self:parse_file(self.file_queue_[self.queue_pos_])
+		local ret,reason = self:parse_file(self.file_queue_[self.queue_pos_])
 		if ret == -1 then 
-			return -1 
+			return -1,reason
 		end
 		self.queue_pos_ = self.queue_pos_ + 1	
 	end
@@ -280,7 +297,7 @@ function lutem:render_block(block)
 		elseif node.node_type == NODE_EXPR then
 			self.output_ = self.output_ .. self:get_expr_val(node.content)
 		elseif node.node_type == NODE_BLOCK then
-			self.render_block(node.content)
+			self:render_block(node)
 		elseif node.node_type == NODE_FOR then
 			self:render_loop(node)
 		else
