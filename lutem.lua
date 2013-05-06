@@ -103,7 +103,7 @@ local function parse_instr(s)
 	return cmd, arglist
 end
 
-function print_node(node, prefix)
+local function print_node(node, prefix)
 	if node.node_type == NODE_FOR then
 		print(prefix .. " " .. node.content[2])
 	else 
@@ -323,3 +323,4 @@ function lutem:render(args)
 	return self.output_
 end
 
+return lutem
