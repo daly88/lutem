@@ -59,7 +59,14 @@ local function new_ast_node(ntype, parent, content)
 end
 
 function lutem:new()
-	o = {}
+	local o = {}
+	o.output_ = {}   
+	o.args_ = {}
+	o.node_root_ = nil  
+	o.blocks_ = {}
+	o.involve_file_ = {} 
+	o.file_queue_ = {} 
+
 	setmetatable(o, self)
 	self.__index = self
 	return o
