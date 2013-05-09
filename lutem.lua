@@ -29,6 +29,7 @@ lutem = {
 
 	involve_file_ = {}, 
 	file_queue_ = {},   --inherit by extends
+	path_root_ = "./",
 }
 
 
@@ -113,9 +114,9 @@ local function print_node(node, prefix)
 	end
 end
 
-function lutem:parse_file(filename)
+function lutem:parse_file(filename, path)
 	srclines = {}
-	local f, err = io.open(filename, 'r')
+	local f, err = io.open(self.path_root_..filename, 'r')
 	if f == nil then return -1,"parse file error "..filename  end
 
 	for line in f:lines() do
@@ -187,8 +188,8 @@ function lutem:parse_file(filename)
 				table.insert(cur_parent.child_, node)
 			else
 				-- parse command
-				i, j = string.find(text, "[%w._ ]+%%}", last) 
-				if i ~= last then return -1, "command syntax error "..cur_lno end
+				i, j = string.find(text, "[%w/._%- ]+%%}", last) 
+				if i ~= last then return -1, "command error "..cur_lno end
 				cmd, arglist = parse_instr(string.sub(text, i, j-2))
 				if cmd == "" then return -1, "command syntax error "..cur_lno end
 				last = j + 1
@@ -250,8 +251,9 @@ function lutem:parse_file(filename)
 end
 
 
-function lutem:load(filename)
+function lutem:load(filename, path)
 	self.involve_file_[filename] = 1
+	self.path_root_ = path
 	table.insert(self.file_queue_, filename)
 	self.queue_pos_ = 1
 	while self.queue_pos_ <= #self.file_queue_ do
@@ -341,5 +343,6 @@ function lutem:render(args)
 	self:render_block(self.node_root_)
 	return self.output_
 end
+
 
 return lutem

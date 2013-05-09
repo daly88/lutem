@@ -3,7 +3,7 @@ require "lutem"
 
 
 tmpl = lutem:new()
-ret,errmsg = tmpl:load("test_sub.tmpl")
+ret,errmsg = tmpl:load("test_sub.tmpl", "./")
 args = {}
 args.bigul = {1,2,3}
 args.users = {
