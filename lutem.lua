@@ -130,7 +130,7 @@ function lutem:parse_file(filename, path)
 	local cur_block = new_ast_node(NODE_BLOCK, nil, "__root")
 	local cur_parent = cur_block
 	local cur_text = new_ast_node(NODE_TEXT, cur_parent, "")
-	--self.blocks_["__root"] = cur_parent
+	self.blocks_["__root"] = cur_parent
 	self.node_root_ = cur_parent
 	
 	local cur_lno = 1
@@ -294,19 +294,24 @@ function lutem:get_expr_val(expr)
 	return tostring(val)	
 end
 
+
+function lutem:render_node(node)
+	if node.node_type == NODE_TEXT or node.node_type == NODE_RAW then
+		table.insert(self.output_, node.content)
+	elseif node.node_type == NODE_EXPR then
+		table.insert(self.output_, self:get_expr_val(node.content))
+	elseif node.node_type == NODE_BLOCK then
+		self:render_block(node)
+	elseif node.node_type == NODE_FOR then
+		self:render_loop(node)
+	else
+		table.insert(self.output_, node.content)
+	end
+end
+
 function lutem:render_block(block)
 	for _, node in ipairs(block.child_) do
-		if node.node_type == NODE_TEXT or node.node_type == NODE_RAW then
-			self.output_ = self.output_  .. node.content
-		elseif node.node_type == NODE_EXPR then
-			self.output_ = self.output_ .. self:get_expr_val(node.content)
-		elseif node.node_type == NODE_BLOCK then
-			self:render_block(node)
-		elseif node.node_type == NODE_FOR then
-			self:render_loop(node)
-		else
-			self.output_ = self.output_ .. node.content
-		end
+		self:render_node(node)
 	end
 end
 
@@ -323,25 +328,16 @@ function lutem:render_loop(block)
 		self.args_[kname] = elem.key
 		self.args_[vname] = elem.val
 		for _, node in ipairs(block.child_) do
-			if node.node_type == NODE_TEXT then
-				self.output_ = self.output_ .. node.content
-			elseif node.node_type == NODE_EXPR then
-				self.output_ = self.output_ .. self:get_expr_val(node.content)
-			elseif node.node_type == NODE_FOR then
-				self:render_loop(node)
-			else
-				self.output_ = self.output_ .. node.content
-			end
+			self:render_node(node)
 		end
 	end
 end
 
 function lutem:render(args)
 	if self.state ~= 1 then return "", -1 end
-	self.output_ = ""	
 	self.args_ = args
 	self:render_block(self.node_root_)
-	return self.output_
+	return table.concat(self.output_, '')
 end
 
 
